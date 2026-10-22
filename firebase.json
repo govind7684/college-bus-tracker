@@ -1,0 +1,40 @@
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "carmel-college-bus-be703",
+          "appId": "1:361267007177:android:a74b0db912ee17c5b10718",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "carmel-college-bus-be703",
+          "configurations": {
+            "android": "1:361267007177:android:a74b0db912ee17c5b10718",
+            "ios": "1:361267007177:ios:735a35f7081948e7b10718",
+            "macos": "1:361267007177:ios:735a35f7081948e7b10718",
+            "web": "1:361267007177:web:29576536458d9db4b10718",
+            "windows": "1:361267007177:web:75b3f06d70cd55f4b10718"
+          }
+        }
+      }
+    }
+  },
+{
+  "hosting": {
+    "public": "build/web",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  }
+}

@@ -1,0 +1,137 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+
+    // Staff = a signed-in user who has a document app2_users/<their UID>.
+    // app2_users/<uid>.role: 'admin' = institution administrator; anything else (or missing) = driver.
+    function hasStaffDoc() {
+      return signedIn() &&
+        exists(/databases/$(database)/documents/app2_users/$(request.auth.uid));
+    }
+    function staffDoc() {
+      return get(/databases/$(database)/documents/app2_users/$(request.auth.uid)).data;
+    }
+    function isAdmin() {
+      return hasStaffDoc() && staffDoc().get('role', 'driver').lower() == 'admin' && staffDoc().get('active', true) != false;
+    }
+    function isDriver() {
+      return hasStaffDoc() && staffDoc().get('role', 'driver').lower() != 'admin' && staffDoc().get('active', true) != false;
+    }
+    function driverBus() { return staffDoc().get('bus', 'bus1'); }
+
+    // App configuration
+    match /app2/{doc} {
+      allow read: if signedIn();
+      allow write: if isDriver() || isAdmin();
+    }
+
+    // Staff profiles (admin + drivers): a user reads only their own; only an administrator creates / changes them.
+    // (Create the login in Firebase Console > Authentication, then add app2_users/<UID> with role + bus.)
+    match /app2_users/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow write: if isAdmin();
+    }
+
+    // Student roster: the institution registers every student here BEFORE they can activate an account.
+    // Document id = the student's email in lower case. A student may read only their own entry.
+    match /app2_roster/{email} {
+      allow read: if isAdmin() ||
+        (signedIn() && request.auth.token.email != null && request.auth.token.email.lower() == email);
+      allow write: if isAdmin();
+    }
+
+    // Student profile can only be created from a matching roster entry (or by an administrator).
+    function rosterOk(uid) {
+      return signedIn() && request.auth.uid == uid && request.auth.token.email != null &&
+        exists(/databases/$(database)/documents/app2_roster/$(request.auth.token.email.lower())) &&
+        get(/databases/$(database)/documents/app2_roster/$(request.auth.token.email.lower())).data.get('status', 'approved') == 'approved' &&
+        request.resource.data.uid == uid &&
+        request.resource.data.status == 'active' &&
+        request.resource.data.bus == get(/databases/$(database)/documents/app2_roster/$(request.auth.token.email.lower())).data.get('bus', 'bus1') &&
+        request.resource.data.admissionNo == get(/databases/$(database)/documents/app2_roster/$(request.auth.token.email.lower())).data.get('admissionNo', '');
+    }
+
+    // Student profiles (fields: uid, name, email, admissionNo, className, phone, guardian*, stop, bus, status)
+    match /app2_students/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isDriver() || isAdmin());
+      allow create: if isAdmin() || rosterOk(uid);
+      allow update: if isAdmin()
+        // student: only their own personal fields, and only while the account is active
+        || (signedIn() && request.auth.uid == uid && resource.data.get('status', 'active') == 'active' &&
+            request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['stop', 'name', 'phone', 'photoUrl', 'photoPath', 'photoB64', 'photoUpdatedAt', 'bus', 'guardianName', 'guardianPhone']))
+        // driver: only the bus / boarding stop assignment
+        || (isDriver() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['bus', 'stop']));
+      allow delete: if false; // students are never deleted, only deactivated (status = 'inactive')
+    }
+
+    // Per-bus live location + saved route: buses/bus1_live, buses/bus1_route, buses/bus2_live, buses/bus2_route.
+    // Everyone can read (parents need no login); a driver can only write the documents of THEIR OWN bus.
+    match /buses/{doc} {
+      allow read: if true;
+      allow write: if isAdmin() || (isDriver() && doc.matches(driverBus() + '_.*'));
+    }
+
+    // Single-bus documents from before multi-bus support (bus/live, bus/bus2_route).
+    match /bus/{doc} {
+      allow read: if true;
+      allow write: if isDriver() || isAdmin();
+    }
+
+    // Trip history: app2_trips/<bus>_<yyyy-MM-dd>_<direction> with one entry per passed stop.
+    match /app2_trips/{id} {
+      allow read: if isDriver() || isAdmin();
+      allow create, update: if isAdmin() || (isDriver() && id.matches(driverBus() + '_.*'));
+      allow delete: if false;
+    }
+
+    // Announcements: everyone reads, staff post/delete
+    match /app2_announcements/{id} {
+      allow read: if true;
+      allow create, delete: if isDriver() || isAdmin();
+      allow update: if false;
+    }
+
+    // Attendance: doc id = <studentUID>_<yyyy-MM-dd>
+    match /app2_attendance/{id} {
+      allow read: if signedIn() && (isDriver() || isAdmin() || resource == null || resource.data.uid == request.auth.uid);
+      allow create, update: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && id.matches(request.auth.uid + '_.*');
+      allow delete: if false;
+    }
+
+    // Audit trail: staff append entries (as themselves); only the administrator reads; never edited or deleted.
+    match /app2_audit/{id} {
+      allow create: if (isAdmin() || isDriver()) && request.resource.data.actorUid == request.auth.uid;
+      allow read: if isAdmin();
+      allow update, delete: if false;
+    }
+
+    // ---- Fees and accounts (administrator only). Nothing is ever deleted: wrong entries are cancelled / voided. ----
+    match /app2_fees/{id} {
+      allow read, create: if isAdmin();
+      allow update: if isAdmin() && request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly(['status', 'cancelledAt', 'cancelledBy']);
+      allow delete: if false;
+    }
+    match /app2_payments/{id} {
+      allow read, create: if isAdmin();
+      allow update: if isAdmin() && request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly(['voided', 'voidedAt', 'voidedBy']);
+      allow delete: if false;
+    }
+    match /app2_ledger/{id} {
+      allow read, create: if isAdmin();
+      allow update: if isAdmin() && request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly(['voided', 'voidedAt', 'voidedBy']);
+      allow delete: if false;
+    }
+    // Receipt number counter (RC-00001, RC-00002, ...)
+    match /app2_counters/{id} {
+      allow read, write: if isAdmin();
+    }
+  }
+}

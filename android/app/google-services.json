@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "361267007177",
+    "project_id": "carmel-college-bus-be703",
+    "storage_bucket": "carmel-college-bus-be703.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:361267007177:android:a74b0db912ee17c5b10718",
+        "android_client_info": {
+          "package_name": "com.carmel.college_bus"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB8HeVzYzL8CK2uWXMgAg0QmQSXp15xMe8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
